@@ -8,11 +8,13 @@ import { MestreView } from './MestreView'
 import { BibliotecaView } from './BibliotecaView'
 
 export default function DashboardPage() {
-  // 1. ESTADO DE NAVEGAÇÃO ATUALIZADO
   const [activeTab, setActiveTab] = useState<'santuario' | 'biblioteca' | 'config'>('santuario')
-  
   const [user, setUser] = useState<any>(null)
-  const [campaigns, setCampaigns] = useState<any[]>([])
+  
+  // Estados para as mesas
+  const [mestreMesas, setMestreMesas] = useState<any[]>([])
+  const [jogadorMesas, setJogadorMesas] = useState<any[]>([])
+  
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<'mestre' | 'jogador'>('mestre') 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
@@ -20,13 +22,33 @@ export default function DashboardPage() {
 
   const fetchData = async () => {
     const { data: { user } } = await supabase.auth.getUser()
-    if (user && view === 'mestre') {
-      const { data } = await supabase
-        .from('campaigns')
-        .select('*')
-        .eq('master_id', user.id)
-        .order('created_at', { ascending: false })
-      if (data) setCampaigns(data)
+    if (!user) return
+
+    // 1. Busca mesas onde eu sou o MESTRE (criador)
+    const { data: mesasCriadas } = await supabase
+      .from('mesa')
+      .select('*')
+      .eq('id_usuario_criador', user.id)
+
+    // 2. Busca mesas onde eu sou JOGADOR (via tabela personagem)
+    const { data: participacoes } = await supabase
+      .from('personagem')
+      .select(`
+        mesa (
+          id_mesa,
+          nome_mesa,
+          created_at,
+          id_usuario_criador
+        )
+      `)
+      .eq('id_usuario', user.id)
+
+    if (mesasCriadas) setMestreMesas(mesasCriadas)
+    
+    if (participacoes) {
+      // Mapeia para pegar apenas o objeto da mesa de dentro da relação
+      const mesasComoJogador = participacoes.map((p: any) => p.mesa).filter(m => m !== null)
+      setJogadorMesas(mesasComoJogador)
     }
   }
 
@@ -69,7 +91,6 @@ export default function DashboardPage() {
           <h1 className="font-cinzel text-xl font-bold tracking-[0.2em] text-amber-500 uppercase italic">RPG TERMINAL</h1>
         </div>
 
-        {/* PERFIL */}
         <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="relative group mb-10">
           <div className={`rounded-full border-2 border-amber-900 shadow-xl overflow-hidden transition-all bg-stone-800 flex items-center justify-center
             ${isSidebarOpen ? 'w-24 h-24' : 'w-12 h-12'}`}
@@ -78,33 +99,32 @@ export default function DashboardPage() {
           </div>
         </button>
 
-        {/* MENU COM O NOVO NOME: BIBLIOTECA ARCANA */}
         <nav className={`w-full space-y-4 transition-all ${isSidebarOpen ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>
           <button 
             onClick={() => setActiveTab('santuario')}
             className={`w-full text-left p-3 font-cinzel text-[10px] uppercase tracking-widest rounded transition border border-transparent
               ${activeTab === 'santuario' ? 'bg-amber-900/20 text-amber-400 border-amber-900/30' : 'text-amber-200/70 hover:text-amber-400'}`}
           >
-             Minhas Crônicas
+              Minhas Crônicas
           </button>
           <button 
             onClick={() => setActiveTab('biblioteca')}
             className={`w-full text-left p-3 font-cinzel text-[10px] uppercase tracking-widest rounded transition border border-transparent
               ${activeTab === 'biblioteca' ? 'bg-amber-900/20 text-amber-400 border-amber-900/30' : 'text-amber-200/70 hover:text-amber-400'}`}
           >
-             Biblioteca Arcana
+              Biblioteca Arcana
           </button>
           <button 
             onClick={() => setActiveTab('config')}
             className={`w-full text-left p-3 font-cinzel text-[10px] uppercase tracking-widest rounded transition border border-transparent
               ${activeTab === 'config' ? 'bg-amber-900/20 text-amber-400 border-amber-900/30' : 'text-amber-200/70 hover:text-amber-400'}`}
           >
-             Configurações
+              Configurações
           </button>
         </nav>
 
         <button onClick={handleLogout} className="mt-auto text-stone-600 hover:text-red-500 transition-colors uppercase text-[10px] font-cinzel">
-           {isSidebarOpen ? '[ Abandonar Reino ]' : '⏻'}
+            {isSidebarOpen ? '[ Abandonar Reino ]' : '⏻'}
         </button>
       </aside>
 
@@ -128,7 +148,26 @@ export default function DashboardPage() {
 
         <main className="flex-1 overflow-y-auto p-8 md:p-12 pt-0">
           {activeTab === 'santuario' ? (
-            view === 'mestre' ? <MestreView campaigns={campaigns} refreshData={fetchData} /> : <div className="text-center py-20 italic opacity-30">Aguardando convocação...</div>
+            view === 'mestre' ? (
+              /* Resolvendo o erro de props: Removemos 'campaigns' que não existe mais no MestreView */
+              <MestreView onMesaCreated={fetchData} /> 
+            ) : (
+              <div className="space-y-6 animate-in fade-in duration-700">
+                <h2 className="font-cinzel text-amber-600/50 text-xs tracking-[0.3em] uppercase border-b border-amber-900/10 pb-2">Mesas que você integra</h2>
+                {jogadorMesas.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {jogadorMesas.map(mesa => (
+                      <div key={mesa.id_mesa} className="p-6 bg-stone-900/40 border border-amber-900/20 rounded hover:border-amber-500 transition-all cursor-pointer group">
+                        <h3 className="font-cinzel text-amber-100 group-hover:text-amber-500">{mesa.nome_mesa}</h3>
+                        <p className="text-[10px] text-stone-500 mt-2 uppercase tracking-widest">Cargo: Aventureiro</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-20 italic opacity-30">Aguardando convocação para novas aventuras...</div>
+                )}
+              </div>
+            )
           ) : activeTab === 'biblioteca' ? (
             <BibliotecaView /> 
           ) : (
